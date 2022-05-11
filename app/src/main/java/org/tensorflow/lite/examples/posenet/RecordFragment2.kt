@@ -1,0 +1,994 @@
+//package org.tensorflow.lite.examples.posenet
+//
+//import android.Manifest
+//import android.content.ContentValues
+//import android.content.Context
+//import android.content.pm.PackageManager
+//import android.os.Build
+//import android.os.Bundle
+//import android.provider.MediaStore
+//import android.util.Log
+//import android.view.*
+//import android.widget.ImageView
+//import android.widget.Toast
+//import androidx.camera.core.*
+//import androidx.camera.lifecycle.ProcessCameraProvider
+//import androidx.camera.video.*
+//import androidx.camera.video.VideoCapture
+//import androidx.core.app.ActivityCompat
+//import androidx.core.content.ContextCompat
+//import androidx.core.content.PermissionChecker
+//import androidx.fragment.app.Fragment
+//import com.google.android.material.bottomnavigation.BottomNavigationView
+//import kotlinx.android.synthetic.main.fragment_record.*
+//import java.text.SimpleDateFormat
+//import java.util.*
+//import java.util.concurrent.ExecutorService
+//import java.util.concurrent.Executors
+//import android.app.AlertDialog
+//import android.app.Dialog
+//import android.graphics.Bitmap
+//import android.graphics.Canvas
+//import android.graphics.Color
+//import android.graphics.ImageFormat
+//import android.graphics.Matrix
+//import android.graphics.Paint
+//import android.graphics.PorterDuff
+//import android.graphics.Rect
+//import android.hardware.camera2.CameraAccessException
+//import android.hardware.camera2.CameraCaptureSession
+//import android.hardware.camera2.CameraCharacteristics
+//import android.hardware.camera2.CameraDevice
+//import android.hardware.camera2.CameraManager
+//import android.hardware.camera2.CaptureRequest
+//import android.media.Image
+//import android.media.ImageReader
+//import android.media.ImageReader.OnImageAvailableListener
+//import android.media.MediaPlayer
+//import android.os.*
+//import android.speech.tts.TextToSpeech
+//import android.util.Base64
+//import androidx.fragment.app.DialogFragment
+//import android.util.Size
+//import android.util.SparseIntArray
+//import android.view.LayoutInflater
+//import android.view.Surface
+//import android.view.SurfaceHolder
+//import android.view.SurfaceView
+//import android.view.View
+//import android.view.ViewGroup
+//import org.tensorflow.lite.examples.posenet.lib.*
+//import java.security.MessageDigest
+//import java.util.*
+//import java.util.concurrent.Semaphore
+//import java.util.concurrent.TimeUnit
+//import kotlin.concurrent.timer
+//import kotlin.math.*
+//
+//class RecordFragment2 : Fragment() {
+//    //영상 촬영 관련 변수들 선언
+//    private var videoCapture: VideoCapture<Recorder>? = null
+//    private var recording: Recording? = null
+//    private lateinit var cameraExecutor: ExecutorService
+//
+//    private lateinit var safeContext: Context
+//    private lateinit var recordButton: ImageView
+//    private lateinit var closeButton: ImageView
+//
+//      /** List of body joints that should be connected.    */
+//      private val bodyJoints = listOf(
+//        Pair(BodyPart.LEFT_WRIST, BodyPart.LEFT_ELBOW),
+//        Pair(BodyPart.LEFT_ELBOW, BodyPart.LEFT_SHOULDER),
+//        Pair(BodyPart.LEFT_SHOULDER, BodyPart.RIGHT_SHOULDER),
+//        Pair(BodyPart.RIGHT_SHOULDER, BodyPart.RIGHT_ELBOW),
+//        Pair(BodyPart.RIGHT_ELBOW, BodyPart.RIGHT_WRIST),
+//        Pair(BodyPart.LEFT_SHOULDER, BodyPart.LEFT_HIP),
+//        Pair(BodyPart.LEFT_HIP, BodyPart.RIGHT_HIP),
+//        Pair(BodyPart.RIGHT_HIP, BodyPart.RIGHT_SHOULDER),
+//        Pair(BodyPart.LEFT_HIP, BodyPart.LEFT_KNEE),
+//        Pair(BodyPart.LEFT_KNEE, BodyPart.LEFT_ANKLE),
+//        Pair(BodyPart.RIGHT_HIP, BodyPart.RIGHT_KNEE),
+//        Pair(BodyPart.RIGHT_KNEE, BodyPart.RIGHT_ANKLE)
+//      )
+//
+//    private var timerTask: Timer? = null
+//    private var time: Int = 0
+//
+//    private var num1 : MediaPlayer? = null
+//    private var num2 : MediaPlayer? = null
+//    private var num3 : MediaPlayer? = null
+//    private var num4 : MediaPlayer? = null
+//    private var num5 : MediaPlayer? = null
+//    private var address : MediaPlayer? = null
+//    private var push : MediaPlayer? = null
+//    private var down : MediaPlayer? = null
+//    private var back : MediaPlayer? = null
+//    private var forward : MediaPlayer? = null
+//    private var follow : MediaPlayer? = null
+//
+//    /** Threshold for confidence score. */
+//    private val minConfidence = 0.5
+//
+//    /** Radius of circle used to draw keypoints.  */
+//    private val circleRadius = 8.0f
+//
+//     /** Paint class holds the style and color information to draw geometries,text and bitmaps. */
+//     private var paint = Paint()
+//
+//
+//     /** A shape for extracting frame data.   */
+//     private val PREVIEW_WIDTH = 640
+//     private val PREVIEW_HEIGHT = 480
+//
+//      /** An object for the Posenet library.    */
+//    private lateinit var posenet: Posenet
+//
+//    /** ID of the current [CameraDevice].   */
+//    private var cameraId: String? = null
+//
+//  /** A [SurfaceView] for camera preview.   */
+//  private var surfaceView: SurfaceView? = null
+//
+//  /** A [CameraCaptureSession] for camera preview.   */
+//  private var captureSession: CameraCaptureSession? = null
+//
+//  /** A reference to the opened [CameraDevice].    */
+//  private var cameraDevice: CameraDevice? = null
+//
+//  /** The [android.util.Size] of camera preview.  */
+//  private var previewSize: Size? = null
+//
+//  /** The [android.util.Size.getWidth] of camera preview. */
+//  private var previewWidth = 0
+//
+//  /** The [android.util.Size.getHeight] of camera preview.  */
+//  private var previewHeight = 0
+//
+//  /** A counter to keep count of total frames.  */
+//  private var frameCounter = 0
+//
+//  /** An IntArray to save image data in ARGB8888 format  */
+//  private lateinit var rgbBytes: IntArray
+//
+//  /** A ByteArray to save image data in YUV format  */
+//  private var yuvBytes = arrayOfNulls<ByteArray>(3)
+//
+//  /** An additional thread for running tasks that shouldn't block the UI.   */
+//  private var backgroundThread: HandlerThread? = null
+//
+//  /** A [Handler] for running tasks in the background.    */
+//  private var backgroundHandler: Handler? = null
+//
+//  /** An [ImageReader] that handles preview frame capture.   */
+//  private var imageReader: ImageReader? = null
+//
+//  /** [CaptureRequest.Builder] for the camera preview   */
+//  private var previewRequestBuilder: CaptureRequest.Builder? = null
+//
+//  /** [CaptureRequest] generated by [.previewRequestBuilder   */
+//  private var previewRequest: CaptureRequest? = null
+//
+//  /** A [Semaphore] to prevent the app from exiting before closing the camera.    */
+//  private val cameraOpenCloseLock = Semaphore(1)
+//
+//  /** Whether the current camera device supports Flash or not.    */
+//  private var flashSupported = false
+//
+//  /** Orientation of the camera sensor.   */
+//  private var sensorOrientation: Int? = null
+//
+//  /** Abstract interface to someone holding a display surface.    */
+//  private var surfaceHolder: SurfaceHolder? = null
+//
+////      /** [CameraDevice.StateCallback] is called when [CameraDevice] changes its state.   */
+////  private val stateCallback = object : CameraDevice.StateCallback() {
+////
+////    override fun onOpened(cameraDevice: CameraDevice) {
+////      cameraOpenCloseLock.release()
+////      this@PosenetActivity.cameraDevice = cameraDevice
+////      createCameraPreviewSession()
+////    }
+////
+////    override fun onDisconnected(cameraDevice: CameraDevice) {
+////      cameraOpenCloseLock.release()
+////      cameraDevice.close()
+////      this@PosenetActivity.cameraDevice = null
+////    }
+////
+////    override fun onError(cameraDevice: CameraDevice, error: Int) {
+////      onDisconnected(cameraDevice)
+////      this@PosenetActivity.activity?.finish()
+////    }
+////  }
+//
+//      private fun showToast(text: String) {
+//    val activity = activity
+//    activity?.runOnUiThread { Toast.makeText(activity, text, Toast.LENGTH_SHORT).show() }
+//  }
+//
+//    //객체 생성 시 로그 태그, 파일 이름, 권한 코드 정의
+//    companion object {
+//        private const val TAG = "CameraXApp"
+//        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+//        private const val REQUEST_CODE_PERMISSIONS = 10
+//        private val REQUIRED_PERMISSIONS =
+//            mutableListOf (
+//                Manifest.permission.CAMERA,
+//                Manifest.permission.RECORD_AUDIO
+//            ).apply {
+//                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+//                    add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+//                }
+//            }.toTypedArray()
+//
+//        fun newInstance() : RecordFragment {
+//            return RecordFragment()
+//        }
+//    }
+//
+//    override fun onCreate(savedInstanceState: Bundle?) {
+//        super.onCreate(savedInstanceState)
+//    }
+//
+//    override fun onAttach(context: Context) {
+//        super.onAttach(context)
+//        safeContext = context
+//    }
+//
+//    //뷰가 생성되었을 때
+//    //프레그먼트와 레이아웃을 연결해주는 파트
+//    override fun onCreateView(
+//        inflater: LayoutInflater,
+//        container: ViewGroup?,
+//        savedInstanceState: Bundle?
+//    ): View? {
+//        val view = inflater.inflate(R.layout.fragment_record, container, false)
+//
+//        return view
+//    }
+//
+//    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+//        super.onViewCreated(view, savedInstanceState)
+//
+//        //카메라 및 저장 권한 획득
+//        if (allPermissionsGranted()) {
+//            startCamera()
+//        } else {
+//            ActivityCompat.requestPermissions(
+//                this.requireActivity(), REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+//        }
+//
+//        recordButton = view.findViewById(R.id.record_button)
+//        closeButton = view.findViewById(R.id.close_button)
+//
+//
+//        //영상 촬영 버튼 클릭 리스너 설정
+//        record_button.setOnClickListener { captureVideo(view) }
+//        //닫기 버튼 클릭 리스너 설정
+//        closeButton.setOnClickListener {
+//            //홈 프레그먼트로 이동
+//            val navigation: BottomNavigationView = view.rootView.findViewById(R.id.bottom_nav)
+//            navigation.selectedItemId = R.id.menu_home
+//        }
+//
+//        //카메라 익세큐터 설정
+//        cameraExecutor = Executors.newSingleThreadExecutor()
+//    }
+//
+//  override fun onResume() {
+//    super.onResume()
+//    startBackgroundThread()
+//  }
+//      override fun onStart() {
+//    super.onStart()
+//    startCamera()
+//    posenet = Posenet(safeContext)
+//  }
+//      override fun onPause() {
+//    closeCamera()
+//    stopBackgroundThread()
+//    super.onPause()
+//  }
+//
+//    override fun onDestroy() {
+//        super.onDestroy()
+//        //에러 처리 -> 안 먹힘
+//        /*
+//        if(recording != null) {
+//            recording?.close()
+//            recording = null
+//        }
+//         */
+//        cameraExecutor.shutdown()
+//        posenet.close()
+//    }
+//
+//      private fun setUpCameraOutputs() {
+//    val activity = activity
+//    val manager = activity!!.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+//    try {
+//      for (cameraId in manager.cameraIdList) {
+//        val characteristics = manager.getCameraCharacteristics(cameraId)
+//
+//        // We don't use a front facing camera in this sample.
+//        val cameraDirection = characteristics.get(CameraCharacteristics.LENS_FACING)
+//        if (cameraDirection != null &&
+//          cameraDirection == CameraCharacteristics.LENS_FACING_FRONT
+//        ) {
+//          continue
+//        }
+//
+//        previewSize = Size(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+//
+//        imageReader = ImageReader.newInstance(
+//          PREVIEW_WIDTH, PREVIEW_HEIGHT,
+//          ImageFormat.YUV_420_888, /*maxImages*/ 2
+//        )
+//
+//        sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION)!!
+//
+//        previewHeight = previewSize!!.height
+//        previewWidth = previewSize!!.width
+//
+//        // Initialize the storage bitmaps once when the resolution is known.
+//        rgbBytes = IntArray(previewWidth * previewHeight)
+//
+//        // Check if the flash is supported.
+//        flashSupported =
+//          characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+//
+//        this.cameraId = cameraId
+//
+//        // We've found a viable camera and finished setting up member variables,
+//        // so we don't need to iterate through other available cameras.
+//        return
+//      }
+//    } catch (e: CameraAccessException) {
+//      Log.e(TAG, e.toString())
+//    } catch (e: NullPointerException) {
+//      // Currently an NPE is thrown when the Camera2API is used but not supported on the
+//      // device this code runs.
+//        Log.e(TAG, e.toString())
+//    }
+//  }
+//
+//    //영상 촬영과 영상 촬영 중단을 정의하는 함수
+//    private fun captureVideo(view: View) {
+//        val videoCapture = this.videoCapture ?: return
+//
+//        recordButton = view.findViewById(R.id.record_button)
+//
+//        //촬영이 진행되고 있는 경우, 영상 촬영을 중단
+//        val curRecording = recording
+//        if (curRecording != null) {
+//            // Stop the current recording session.
+//            curRecording.stop()
+//            recording = null
+//            return
+//        }
+//
+//        //새로운 영상 촬영 세션 생성 및 시작
+//        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
+//            .format(System.currentTimeMillis())
+//        val contentValues = ContentValues().apply {
+//            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+//            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+//            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+//                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/CameraX-Video")
+//            }
+//        }
+//
+//        val mediaStoreOutputOptions = MediaStoreOutputOptions
+//            .Builder(requireActivity().contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+//            .setContentValues(contentValues)
+//            .build()
+//
+//        //영상 촬영 시작 및 에러 처리
+//        recording = videoCapture.output
+//            .prepareRecording(safeContext, mediaStoreOutputOptions)
+//            .apply {
+//                if (PermissionChecker.checkSelfPermission(requireActivity(),
+//                        Manifest.permission.RECORD_AUDIO) ==
+//                    PermissionChecker.PERMISSION_GRANTED)
+//                {
+//                    withAudioEnabled()
+//                }
+//            }
+//            .start(ContextCompat.getMainExecutor(safeContext)) { recordEvent ->
+//                when(recordEvent) {
+//                    is VideoRecordEvent.Start -> {
+//                        recordButton.setImageResource(R.drawable.ic_record_btn_red)
+//                    }
+//                    is VideoRecordEvent.Finalize -> {
+//                        if (!recordEvent.hasError()) {
+//                            val msg = "Video capture succeeded: " +
+//                                    "${recordEvent.outputResults.outputUri}"
+//                            Toast.makeText(requireActivity().baseContext, msg, Toast.LENGTH_SHORT)
+//                                .show()
+//                            Log.d(TAG, msg)
+//                        } else {
+//                            recording?.close()
+//                            recording = null
+//                            Log.e(TAG, "Video capture ends with error: " +
+//                                    "${recordEvent.error}")
+//                        }
+//                        recordButton.setImageResource(R.drawable.ic_record_btn)
+//                    }
+//                }
+//            }
+//
+//    }
+//
+//    //카메라 설정
+//    private fun startCamera() {
+//        timerTask = kotlin.concurrent.timer(period = 100) {
+//          time ++
+//        }
+//        num1 = MediaPlayer.create(this.context, R.raw.one)
+//        num2 = MediaPlayer.create(this.context, R.raw.two)
+//        num3 = MediaPlayer.create(this.context, R.raw.three)
+//        num4 = MediaPlayer.create(this.context, R.raw.four)
+//        num5 = MediaPlayer.create(this.context, R.raw.five)
+//        address = MediaPlayer.create(this.context, R.raw.address)
+//        push = MediaPlayer.create(this.context, R.raw.push_away)
+//        back = MediaPlayer.create(this.context, R.raw.back_swing)
+//        follow = MediaPlayer.create(this.context, R.raw.follow_throw)
+//        forward = MediaPlayer.create(this.context, R.raw.forward)
+//        down = MediaPlayer.create(this.context, R.raw.down_swing)
+//
+//        setUpCameraOutputs()
+//
+//        val cameraProviderFuture = ProcessCameraProvider.getInstance(safeContext)
+//
+//        cameraProviderFuture.addListener({
+//            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+//
+//            //카메라 프리뷰 설정
+//            val preview = Preview.Builder()
+//                .build()
+//                .also {
+//                    it.setSurfaceProvider(camera_preview.surfaceProvider)
+//                }
+//
+//            //영상 촬영 객체 선언 및 촬영 화질 설정
+//            val recorder = Recorder.Builder()
+//                .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+//                .build()
+//            videoCapture = VideoCapture.withOutput(recorder)
+//
+//            //후면 카메라를 기본 카메라로 설정
+//            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+//
+//            try {
+//                //바인딩 되어 있는 카메라들을 해제
+//                cameraProvider.unbindAll()
+//                createCameraPreviewSession()
+//
+//                //유스케이스와 카메라를 바인딩
+//                cameraProvider.bindToLifecycle(
+//                    this, cameraSelector, preview, videoCapture)
+//
+//            } catch(exc: Exception) {
+//                Log.e(TAG, "Use case binding failed", exc)
+//            }
+//
+//        }, ContextCompat.getMainExecutor(safeContext))
+//
+//    }
+//
+//    private fun closeCamera() {
+//        if (captureSession == null) {
+//          return
+//        }
+//
+//        try {
+//          cameraOpenCloseLock.acquire()
+//          captureSession!!.close()
+//          captureSession = null
+//          cameraDevice!!.close()
+//          cameraDevice = null
+//          imageReader!!.close()
+//          imageReader = null
+//        } catch (e: InterruptedException) {
+//          throw RuntimeException("Interrupted while trying to lock camera closing.", e)
+//        } finally {
+//          cameraOpenCloseLock.release()
+//        }
+//    }
+//
+//      private fun startBackgroundThread() {
+//    backgroundThread = HandlerThread("imageAvailableListener").also { it.start() }
+//    backgroundHandler = Handler(backgroundThread!!.looper)
+//  }
+//
+//      /**
+//   * Stops the background thread and its [Handler].
+//   */
+//  private fun stopBackgroundThread() {
+//    backgroundThread?.quitSafely()
+//    try {
+//      backgroundThread?.join()
+//      backgroundThread = null
+//      backgroundHandler = null
+//    } catch (e: InterruptedException) {
+//      Log.e(TAG, e.toString())
+//    }
+//  }
+//
+//      /** Fill the yuvBytes with data from image planes.   */
+//  private fun fillBytes(planes: Array<Image.Plane>, yuvBytes: Array<ByteArray?>) {
+//    // Row stride is the total number of bytes occupied in memory by a row of an image.
+//    // Because of the variable row stride it's not possible to know in
+//    // advance the actual necessary dimensions of the yuv planes.
+//    for (i in planes.indices) {
+//      val buffer = planes[i].buffer
+//      if (yuvBytes[i] == null) {
+//        yuvBytes[i] = ByteArray(buffer.capacity())
+//      }
+//      buffer.get(yuvBytes[i]!!)
+//    }
+//  }
+//
+//      /** A [OnImageAvailableListener] to receive frames as they are available.  */
+//  private var imageAvailableListener = object : OnImageAvailableListener {
+//    override fun onImageAvailable(imageReader: ImageReader) {
+//      // We need wait until we have some size from onPreviewSizeChosen
+//      if (previewWidth == 0 || previewHeight == 0) {
+//        return
+//      }
+//
+//      val image = imageReader.acquireLatestImage() ?: return
+//      fillBytes(image.planes, yuvBytes)
+//
+//      ImageUtils.convertYUV420ToARGB8888(
+//        yuvBytes[0]!!,
+//        yuvBytes[1]!!,
+//        yuvBytes[2]!!,
+//        previewWidth,
+//        previewHeight,
+//        /*yRowStride=*/ image.planes[0].rowStride,
+//        /*uvRowStride=*/ image.planes[1].rowStride,
+//        /*uvPixelStride=*/ image.planes[1].pixelStride,
+//        rgbBytes
+//      )
+//
+//      // Create bitmap from int array
+//      val imageBitmap = Bitmap.createBitmap(
+//        rgbBytes, previewWidth, previewHeight,
+//        Bitmap.Config.ARGB_8888
+//      )
+//
+//      // Create rotated version for portrait display
+//      val rotateMatrix = Matrix()
+//      rotateMatrix.postRotate(90.0f)
+//
+//      val rotatedBitmap = Bitmap.createBitmap(
+//        imageBitmap, 0, 0, previewWidth, previewHeight,
+//        rotateMatrix, true
+//      )
+//      image.close()
+//
+//      processImage(rotatedBitmap)
+//    }
+//  }
+//
+//      /** Crop Bitmap to maintain aspect ratio of model input.   */
+//  private fun cropBitmap(bitmap: Bitmap): Bitmap {
+//    val bitmapRatio = bitmap.height.toFloat() / bitmap.width
+//    val modelInputRatio = MODEL_HEIGHT.toFloat() / MODEL_WIDTH
+//    var croppedBitmap = bitmap
+//
+//    // Acceptable difference between the modelInputRatio and bitmapRatio to skip cropping.
+//    val maxDifference = 1e-5
+//
+//    // Checks if the bitmap has similar aspect ratio as the required model input.
+//    when {
+//      abs(modelInputRatio - bitmapRatio) < maxDifference -> return croppedBitmap
+//      modelInputRatio < bitmapRatio -> {
+//        // New image is taller so we are height constrained.
+//        val cropHeight = bitmap.height - (bitmap.width.toFloat() / modelInputRatio)
+//        croppedBitmap = Bitmap.createBitmap(
+//          bitmap,
+//          0,
+//          (cropHeight / 2).toInt(),
+//          bitmap.width,
+//          (bitmap.height - cropHeight).toInt()
+//        )
+//      }
+//      else -> {
+//        val cropWidth = bitmap.width - (bitmap.height.toFloat() * modelInputRatio)
+//        croppedBitmap = Bitmap.createBitmap(
+//          bitmap,
+//          (cropWidth / 2).toInt(),
+//          0,
+//          (bitmap.width - cropWidth).toInt(),
+//          bitmap.height
+//        )
+//      }
+//    }
+//    return croppedBitmap
+//  }
+//
+//      /** Set the paint color and size.    */
+//  private fun setPaint() {
+//    paint.color = Color.RED
+//    paint.textSize = 80.0f
+//    paint.strokeWidth = 8.0f
+//  }
+//
+//      /** Draw bitmap on Canvas.   */
+//  private fun draw(canvas: Canvas, person: Person, bitmap: Bitmap) {
+//    canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+//    // Draw `bitmap` and `person` in square canvas.
+//    val screenWidth: Int
+//    val screenHeight: Int
+//    val left: Int
+//    val right: Int
+//    val top: Int
+//    val bottom: Int
+//    if (canvas.height > canvas.width) {
+//      screenWidth = canvas.width
+//      screenHeight = canvas.width
+//      left = 0
+//      top = (canvas.height - canvas.width) / 2
+//    } else {
+//      screenWidth = canvas.height
+//      screenHeight = canvas.height
+//      left = (canvas.width - canvas.height) / 2
+//      top = 0
+//    }
+//    right = left + screenWidth
+//    bottom = top + screenHeight
+//
+//    setPaint()
+//    canvas.drawBitmap(
+//      bitmap,
+//      Rect(0, 0, bitmap.width, bitmap.height),
+//      Rect(left, top, right, bottom),
+//      paint
+//    )
+//
+//    val widthRatio = screenWidth.toFloat() / MODEL_WIDTH
+//    val heightRatio = screenHeight.toFloat() / MODEL_HEIGHT
+//
+//    // Draw key points over the image.
+//    for (keyPoint in person.keyPoints) {
+//      if (keyPoint.score > minConfidence) {
+//        val position = keyPoint.position
+//        val adjustedX: Float = position.x.toFloat() * widthRatio + left
+//      val adjustedY: Float = position.y.toFloat() * heightRatio + top
+//      canvas.drawCircle(adjustedX, adjustedY, circleRadius, paint)
+//    }
+//  }
+//
+//  for (line in bodyJoints) {
+//      if (
+//        (person.keyPoints[line.first.ordinal].score > minConfidence) and
+//        (person.keyPoints[line.second.ordinal].score > minConfidence)
+//      ) {
+//        canvas.drawLine(
+//          person.keyPoints[line.first.ordinal].position.x.toFloat() * widthRatio + left,
+//          person.keyPoints[line.first.ordinal].position.y.toFloat() * heightRatio + top,
+//          person.keyPoints[line.second.ordinal].position.x.toFloat() * widthRatio + left,
+//          person.keyPoints[line.second.ordinal].position.y.toFloat() * heightRatio + top,
+//          paint
+//        )
+//      }
+//    }
+/////////////////////////////////////////////////////////////////////////////////
+//
+//    /** 각 부위별 각도*/
+//    val leftAlbowAngle = person.getAngle(person.keyPoints[BodyPart.LEFT_SHOULDER.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_ELBOW.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_WRIST.ordinal].position)
+//
+//    val rightAlbowAngle = person.getAngle(person.keyPoints[BodyPart.RIGHT_SHOULDER.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_ELBOW.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_WRIST.ordinal].position)
+//
+//    val leftShoulderAngle = person.getAngle(person.keyPoints[BodyPart.LEFT_ELBOW.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_SHOULDER.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_HIP.ordinal].position)
+//
+//    val rightShoulderAngle = person.getAngle(person.keyPoints[BodyPart.RIGHT_ELBOW.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_SHOULDER.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_HIP.ordinal].position)
+//
+//    val leftHipAngle = person.getAngle(person.keyPoints[BodyPart.LEFT_SHOULDER.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_HIP.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_KNEE.ordinal].position)
+//
+//    val rightHipAngle = person.getAngle(person.keyPoints[BodyPart.RIGHT_SHOULDER.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_HIP.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_KNEE.ordinal].position)
+//
+//    val leftKneeAngle = person.getAngle(person.keyPoints[BodyPart.LEFT_HIP.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_KNEE.ordinal].position,
+//      person.keyPoints[BodyPart.LEFT_ANKLE.ordinal].position)
+//
+//    val rightKneeAngle = person.getAngle(person.keyPoints[BodyPart.RIGHT_HIP.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_KNEE.ordinal].position,
+//      person.keyPoints[BodyPart.RIGHT_ANKLE.ordinal].position)
+//
+//    /** 각 자세 인스턴스 생성*/
+//    val pose_address = VowlingPose(90.0, 0.0, 160.0, 160.0);
+//    val pose_pushaway = VowlingPose(105.0, 15.0, 150.0, 150.0, 150.0);
+//    val pose_downswing = VowlingPose(180.0, 10.0, 170.0, 150.0, 150.0);
+//    val pose_backswing = VowlingPose(180.0, 90.0, 110.0, 130.0, 130.0);
+//    val pose_forwardswing = VowlingPose(180.0, 30.0, 175.0, 170.0, 80.0);
+//    val pose_followthrough = VowlingPose(160.0, 160.0, 175.0, 180.0, 100.0);
+//
+//    /** 각 자세 점수*/
+//    val addressScore = pose_address.getScore(rightAlbowAngle, rightShoulderAngle, rightHipAngle, rightKneeAngle)
+//    val pushawayScore = pose_pushaway.getScore(rightAlbowAngle, rightShoulderAngle, rightHipAngle, rightKneeAngle, leftKneeAngle)
+//    val downswingScore = pose_pushaway.getScore(rightAlbowAngle, rightShoulderAngle, rightHipAngle, rightKneeAngle, leftKneeAngle)
+//    val backswingScore = pose_pushaway.getScore(rightAlbowAngle, rightShoulderAngle, rightHipAngle, rightKneeAngle, leftKneeAngle)
+//    val forwardswingScore = pose_pushaway.getScore(rightAlbowAngle, rightShoulderAngle, rightHipAngle, rightKneeAngle, leftKneeAngle)
+//    val followthroughScore = pose_pushaway.getScore(rightAlbowAngle, rightShoulderAngle, rightHipAngle, rightKneeAngle, leftKneeAngle)
+//
+//    var positionOfTime = VowlingPose(0.0,0.0,0.0,0.0)
+//
+//    /** 50점 이상의 어드레스 자세 점수만 출력 후 scoreArray에 저장*/
+////    if(addressScore>50){
+////      pose_address.scoreArray.plus(addressScore)
+////      canvas.drawText(
+////        "어드레스 점수 : %.0f".format(addressScore),
+////        (15.0f * widthRatio),
+////        (30.0f * heightRatio + bottom),
+////        paint
+////      )
+////    }
+//    /** 시간 별로 자세 구분*/
+//    val sec = time/10
+//    val fiveSec = time%50
+//
+//    if(fiveSec == 10 && sec<=30) {
+//      num1?.start()
+//    }else if(fiveSec == 20 && sec<=30){
+//      num2?.start()
+//    }else if(fiveSec == 30 && sec<=30){
+//      num3?.start()
+//    }else if(fiveSec == 40 && sec<=30){
+//      num4?.start()
+//    }
+//
+//    if(sec == 0){
+//      address?.start()
+//    }
+//    if(sec == 5){
+//      push?.start()
+//    }
+//    if(sec == 10){
+//      down?.start()
+//    }
+//    if(sec == 15){
+//      back?.start()
+//    }
+//    if(sec == 20){
+//      forward?.start()
+//    }
+//    if(sec == 25){
+//      follow?.start()
+//    }
+//
+//    if(sec <= 5) {
+//      positionOfTime = pose_address
+//    } else if (sec <= 10) {
+//      positionOfTime = pose_pushaway
+//    } else if (sec <= 15) {
+//      positionOfTime = pose_downswing
+//    } else if (sec <= 20) {
+//      positionOfTime = pose_backswing
+//    } else if (sec <= 25) {
+//      positionOfTime = pose_forwardswing
+//    } else if (sec <= 30) {
+//      positionOfTime = pose_followthrough
+//    }
+//
+//    canvas.drawText(
+//      "addressScore : %.0f, sec : %d".format(addressScore, sec),
+//      (15.0f * widthRatio),
+//      (00.0f * heightRatio + bottom),
+//      paint
+//    )
+//    canvas.drawText(
+//      "정답 : %.0f, 실제 : %.0f".format(positionOfTime.correctRightElbowAngle, rightAlbowAngle),
+//      (15.0f * widthRatio),
+//      (20.0f * heightRatio + bottom),
+//      paint
+//    )
+//    canvas.drawText(
+//      "정답 : %.0f, 실제 : %.0f".format(positionOfTime.correctRightShoulderAngle, rightShoulderAngle),
+//      (15.0f * widthRatio),
+//      (40.0f * heightRatio + bottom),
+//      paint
+//    )
+//    canvas.drawText(
+//      "정답 : %.0f, 실제 : %.0f".format(positionOfTime.correctRightHipAngle, rightHipAngle),
+//      (15.0f * widthRatio),
+//      (60.0f * heightRatio + bottom),
+//      paint
+//    )
+//    canvas.drawText(
+//      "정답 : %.0f, 실제 : %.0f".format(positionOfTime.correctRightKneeAngle, rightKneeAngle),
+//      (15.0f * widthRatio),
+//      (80.0f * heightRatio + bottom),
+//      paint
+//    )
+//    canvas.drawText(
+//      "정답 : %.0f, 실제 : %.0f".format(positionOfTime.correctLeftKneeAngle, leftKneeAngle),
+//      (15.0f * widthRatio),
+//      (100.0f * heightRatio + bottom),
+//      paint
+//    )
+////    canvas.drawText(
+////      "어드레스 점수 : %.0f".format(addressScore),
+////      (15.0f * widthRatio),
+////      (30.0f * heightRatio + bottom),
+////      paint
+////    )
+////
+////    canvas.drawText(
+////      "푸시어웨이 점수 : %.0f".format(pushawayScore),
+////      (15.0f * widthRatio),
+////      (50.0f * heightRatio + bottom),
+////      paint
+////    )
+////
+////    canvas.drawText(
+////      "다운스윙 점수 : %.0f".format(downswingScore),
+////      (15.0f * widthRatio),
+////      (70.0f * heightRatio + bottom),
+////      paint
+////    )
+////
+////    canvas.drawText(
+////      "백스윙 점수 : %.0f".format(backswingScore)),
+////      (15.0f * widthRatio),
+////      (30.0f * heightRatio + bottom),
+////      paint
+////    )
+////
+////    canvas.drawText(
+////      "포워드스윙 점수 : %.0f".format(forwardswingScore),
+////      (15.0f * widthRatio),
+////      (50.0f * heightRatio + bottom),
+////      paint
+////    )
+////
+////    canvas.drawText(
+////      "팔로스루 점수 : %.0f".format(followthroughScore),
+////      (15.0f * widthRatio),
+////      (70.0f * heightRatio + bottom),
+////      paint
+////    )
+//
+////    canvas.drawText(
+////      "Score: %.2f".format(person.score),
+////      (15.0f * widthRatio),
+////      (30.0f * heightRatio + bottom),
+////      paint
+////    )
+////    canvas.drawText(
+////      "Device: %s".format(posenet.device),
+////      (15.0f * widthRatio),
+////      (50.0f * heightRatio + bottom),
+////      paint
+////    )
+////    canvas.drawText(
+////      "Time: %.2f ms".format(posenet.lastInferenceTimeNanos * 1.0f / 1_000_000),
+////      (15.0f * widthRatio),
+////      (70.0f * heightRatio + bottom),
+////      paint
+////    )
+//
+//    // Draw!
+//    surfaceHolder!!.unlockCanvasAndPost(canvas)
+//  }
+//
+//      /** Process image using Posenet library.   */
+//  private fun processImage(bitmap: Bitmap) {
+//    // Crop bitmap.
+//    val croppedBitmap = cropBitmap(bitmap)
+//
+//    // Created scaled version of bitmap for model input.
+//    val scaledBitmap = Bitmap.createScaledBitmap(croppedBitmap, MODEL_WIDTH, MODEL_HEIGHT, true)
+//
+//    // Perform inference.
+//    val person = posenet.estimateSinglePose(scaledBitmap)
+//    val canvas: Canvas = surfaceHolder!!.lockCanvas()
+//    draw(canvas, person, scaledBitmap)
+//  }
+//
+//      /**
+//   * Creates a new [CameraCaptureSession] for camera preview.
+//   */
+//  private fun createCameraPreviewSession() {
+//    try {
+//      // We capture images from preview in YUV format.
+//      imageReader = ImageReader.newInstance(
+//        previewSize!!.width, previewSize!!.height, ImageFormat.YUV_420_888, 2
+//      )
+//      imageReader!!.setOnImageAvailableListener(imageAvailableListener, backgroundHandler)
+//
+//      // This is the surface we need to record images for processing.
+//      val recordingSurface = imageReader!!.surface
+//
+//      // We set up a CaptureRequest.Builder with the output Surface.
+//      previewRequestBuilder = cameraDevice!!.createCaptureRequest(
+//        CameraDevice.TEMPLATE_PREVIEW
+//      )
+//      previewRequestBuilder!!.addTarget(recordingSurface)
+//
+//      // Here, we create a CameraCaptureSession for camera preview.
+//      cameraDevice!!.createCaptureSession(
+//        listOf(recordingSurface),
+//        object : CameraCaptureSession.StateCallback() {
+//          override fun onConfigured(cameraCaptureSession: CameraCaptureSession) {
+//            // The camera is already closed
+//            if (cameraDevice == null) return
+//
+//            // When the session is ready, we start displaying the preview.
+//            captureSession = cameraCaptureSession
+//            try {
+//              // Auto focus should be continuous for camera preview.
+//              previewRequestBuilder!!.set(
+//                CaptureRequest.CONTROL_AF_MODE,
+//                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+//              )
+//              // Flash is automatically enabled when necessary.
+//              setAutoFlash(previewRequestBuilder!!)
+//
+//              // Finally, we start displaying the camera preview.
+//              previewRequest = previewRequestBuilder!!.build()
+//              captureSession!!.setRepeatingRequest(
+//                previewRequest!!,
+//                null, null
+//              )
+//            } catch (e: CameraAccessException) {
+//              Log.e(TAG, e.toString())
+//            }
+//          }
+//
+//          override fun onConfigureFailed(cameraCaptureSession: CameraCaptureSession) {
+//            showToast("Failed")
+//          }
+//        },
+//        null
+//      )
+//    } catch (e: CameraAccessException) {
+//      Log.e(TAG, e.toString())
+//    }
+//  }
+//
+//  private fun setAutoFlash(requestBuilder: CaptureRequest.Builder) {
+//    if (flashSupported) {
+//      requestBuilder.set(
+//        CaptureRequest.CONTROL_AE_MODE,
+//        CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH
+//      )
+//    }
+//  }
+//
+//
+//    //요구한 모든 권한을 획득 했는지 확인
+//    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
+//        ContextCompat.checkSelfPermission(
+//            safeContext, it) == PackageManager.PERMISSION_GRANTED
+//    }
+//
+//    //카메라 및 저장 권한 획득 여부에 따른 결과 처리 함수
+//    override fun onRequestPermissionsResult(
+//        requestCode: Int, permissions: Array<String>, grantResults:
+//        IntArray) {
+//        if (requestCode == REQUEST_CODE_PERMISSIONS) {
+//            if (allPermissionsGranted()) {
+//                startCamera()
+//            } else {
+//                Toast.makeText(this.requireContext(),
+//                    "Permissions not granted by the user.",
+//                    Toast.LENGTH_SHORT).show()
+//            }
+//        }
+//    }
+//}
